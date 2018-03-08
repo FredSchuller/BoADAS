@@ -1,2 +1,2 @@
-# Boa2S
- The Bolometer Array analysis software
+# BoADAS
+ The Bolometer Array Data Analysis Software

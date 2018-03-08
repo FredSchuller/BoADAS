@@ -1,0 +1,8 @@
+55000.0   57538.   1.0e5   # V-to-Jy factor at 450 mic before 2016: to be determined!
+57538.0   57569.0  1.24e5  # 2016 June run - updated 2017-02-22
+57662.0   57692.0  2.02e5  # 2016 Oct. run - updated 2017-02-22
+57692.0	  57753.0  1.47e5  # 2016 Nov-Dec run - updated 2017-02-22
+57753.0   57900.0  0.88e5  # starting 2017-01-01 - updated 2018-01-18
+57900.0   57930.0  1.86e5  # 2017 June, before replacing M2 - updated 2018-01-18
+57930.0   57950.0  1.12e5  # starting 2017-06-26 (after sub-ref exchange) - updated 2018-01-18
+57950.0   60000.0  1.17e5  # After 2017-07-25 - added 2018-01-18

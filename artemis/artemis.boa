@@ -1,0 +1,911 @@
+#!/usr/bin/env python
+
+# APEX - Atacama Pathfinder EXperiment Project
+#
+# who         when        what
+# --------    ----------  ----------------------------------------------
+#             2007-2009 : p-Artemis
+# vreveret    2007-10-16  Created
+# mdumke      2009-05-24  Generalized version for ${BOA_HOME}/artemis
+#
+#             2013-2014 : Artemis350 ver. 1
+# cagurto     2013-07-10  add new function
+# fschuller   2013-09-10  file fred.py created based on SABOCA reduction functions
+# fschuller   2013-09-11  more functions defined in fred.py
+# fmacauliffe 2014-06-02  RCP updated
+# fmontene    2014-06-06  Added select_proper_RCP function
+#
+#             2016 ...  : Artemis ver. 2, 350+450
+# vreveret    2016-06-06  Modified for Artemis2016 (350 + 450) : 18 frames shift for 350, etc.. 
+# vkonyves    2016-06-21  Above 18 frames shift commented out after solving the problem in BEAR1
+# fschuller   2016-11-24  - Added argument 'pause' in redmfoc to process subscan per subscan
+#                         - added new functions (center, plots2n, ...)
+# fschuller   2016-11-25  Major cleaning/re-writing. Moved functions defined in fred.py to here.
+# fschuller   2016-12-01  Finalised update of redsky and redmfoc
+# fschuller   2017-01-13  Changed some input arguments in firstSteps
+# fschuller   2017-02-20  Added boolean argument 'showNEFD'
+# fschuller   2017-03-09  Replaced doMap(oversamp=5) by doMap(overamp=9) + 1/3-beam smoothing
+# fschuller   2017-04-03  Added 'mask' and 'threshold' in firstSteps and process
+# fschuller   2017-04-14  Changed default band to 450 in redpnt, redweak, redcal and redmfoc
+# fschuller   2017-04-25  Created function redfoc
+# fschuller   2017-04-27  Created function redbeam
+# fschuller   2017-04-29  Created function redstrong
+# fschuller   2017-06-09  Replaced saboca-... with artemis-secondary-fluxes.py (incl. 450 mic fluxes) 
+# fschuller   2017-07-04  Quite a few changes in skydip reduction
+'''
+Name: artemis.boa
+This module contains reduction functions for Artemis data.
+'''
+
+import os
+# from commands import getoutput
+# import string
+# import time
+import numpy as np
+# from scipy import optimize
+
+# Boa functions required by redmfoc
+from boa.Utilities import fitParabola, modelparabola
+
+# Import some functions and fluxes used for calibration of SABOCA data
+sabocadir = os.getenv('BOA_HOME_SABOCA')+'/'
+## execfile(sabocadir + 'saboca-secondary-fluxes.py')
+execfile(sabocadir + 'saboca-planet-flux.py')
+
+# Utility functions defined here:
+boadir = os.getenv('BOA_HOME')
+execfile(boadir+'/artemis/artemis-util.py')
+execfile(boadir+'/artemis/skydip.py')
+# expected fluxes for secondary calibrators
+execfile(boadir+'/artemis/artemis-secondary-fluxes.py')
+
+
+print " \033[1;31m +-----------------+"
+print "  |   artemis.boa   |"
+print "  +-----------------+"
+print "  Quick reduction functions for Artemis:"
+print "  _____________________________________\033[0m"
+print " "
+print " - process(data,scannum,subscans=[],band=350,weak=0,bright=0,tau=0,nshift=0):"
+print "\tFull, basic processing of a scan, including reading."
+print " - redstrong(scannum,subscans=[],band=450,tau=0,radius=26.):"
+print "\tSpecial function for reducing pointings on very strong sources (e.g. Jupiter)"
+print " - redpnt(scannum,subscans=[],band=450,weak=0,bright=1,tau=0,nshift=0,getresult=0):"
+print "\tReads and processes a pointing scan. Optionnally returns pointing result."
+print " - redfoc(scannum,band=450,nshift=0):"
+print "\tReduction of a staring focus scan."
+print " - redmfoc(scannum,band=450,tau=0,nshift=0,pause=0,s2n=0):"
+print "\tReduction of a mapping focus scan."
+print " - redweak(scannum,subscans=[],band=450,tau=0,nshift=0,getresult=0):"
+print "\tFull processing of a scan, with reduction optimised for weak sources."
+print "\tThen, builds a map and tries to solve for pointing."
+print " - redcal(scannum,subscans=[],band=450,tau=0,nshift=0):"
+print "\tProcesses a calibration scan. Returns the ratio between measured and expected fluxes."
+print " - redsky(scannum,band=350):"
+print "\tReduction of a skydip scan."
+
+
+####
+print " "
+print " \033[1;35m For more details, please do: print <function>.__doc__  \033[0m"
+print " \033[1;34m Version last modified: 2018-01-10 \033[0m"
+# print " \033[1;34m Version last modified: 2017-07-17 \033[0m"  # last significant change
+print " "
+
+
+# -----------------------------------------------------------------
+#
+# Reduction functions start here
+#
+# -----------------------------------------------------------------
+def firstSteps(data,band=350,bright=0,applyFF=1,skydip=0,mask=None,threshold=0.):
+    """
+    firstSteps(data,band=350,bright=0,applyFF=1,skydip=0):
+      First basic steps of data reduction.
+    INP:
+      band (int)    : select 350 or 450 microns
+      bright (bool) : if set, flag central pos. before zeroStart
+      applyFF (bool): should we correct for relative gains?
+      skydip (bool) : if set, don't subtract any correlated noise, but apply
+                      flat field using gains for sky emission (new 2017-07-04)
+    """
+    # Calibration (without opacity correction) and update RCP
+    mjd = data.ScanParam.MJD[0]
+    rcp = getArtemisRCP(mjd,band)
+
+    # rcp = "ARTEMIS350_2017-West"
+    # rcp = "ARTEMIS350_2017-East"
+
+    VtoJy = getArtemisCalFactor(mjd,band)
+    data.MessHand.info("Applying V-to-Jy factor: %6.3g" % (VtoJy))
+    data.Data *= array(VtoJy,'f') 
+    data.MessHand.info("Using RCP file: %s" % (rcp))
+    data.BolometerArray.updateRCP(rcp)
+    data.flagRCP(rcp)
+    # Already kill dead and very noisy channels at this stage
+    data.flagFractionRms(ratio=5)
+
+    # Flag model, if any
+    if mask:
+        data.flagSource(model=mask,threshold=threshold)
+        
+    # zero start and flat field correction
+    if bright:
+        if band == 450:
+            data.flagPosition(radius=data.BolometerArray.BeamSize * 2.)
+        else:
+            data.flagPosition(radius=data.BolometerArray.BeamSize * 3.)
+
+    data.zeroStart()
+    if applyFF and not skydip:
+        applyFlatField(data)  # or data.flatfield() ?...
+
+    # Median noise removal, only for "weak" sources
+    # if weak:
+    # Changed 2017-01-13 (FSc): the median noise computed on the full array
+    # should ALWAYS be subtracted, EXCEPT when processing skydip scans
+    if skydip:
+        # NEW ! 2017-07-04
+        if applyFF:
+            data.flatfield(method='extend')
+    else:
+        data.MessHand.info("Subtracting median noise on full array...")
+        data.medianNoiseRemoval(chanRef=-1,nbloop=1,factor=0.99)
+        data.flagNan()
+
+    if mask or bright:
+        data.unflag(flag=8)
+
+# -----------------------------------------------------------------
+def redbeam(scannum,subscans=[],band=350,jup=0,toFlag=[]):
+    # Read the data
+    readPWV = 1.
+    febe = "ARTEMIS%3i-BEAR1"%(band)
+    tst = data.read(scannum,febe=febe,baseband=1,subscans=subscans,readPWV=readPWV)
+    if tst:
+        print " ***  Cannot read scan %s - Exiting !!  ***"%(str(scannum))
+        return -1
+
+    # Calibration (without opacity correction) and update RCP
+    mjd = data.ScanParam.MJD[0]
+    # rcp = getArtemisRCP(mjd,band)
+    # rcp = "Jupiter.47554_350.rcp"
+    # rcp = "ARTEMIS350_17232.rcp"
+    # rcp = "ARTEMIS350_17968.rcp"
+    # rcp = "ARTEMIS350_2017-Jup.rcp"
+
+    # rcp = "ARTEMIS350_2017.rcp"   # final (?) version - 2017-12-05
+    rcp = "ARTEMIS350_2017_final.rcp"   # most final version - 2017-12-06
+
+    VtoJy = getArtemisCalFactor(mjd,band)
+    data.MessHand.info("Applying V-to-Jy factor: %6.3g" % (VtoJy))
+    data.Data *= array(VtoJy,'f') 
+    data.MessHand.info("Using RCP file: %s" % (rcp))
+    data.BolometerArray.updateRCP(rcp)
+
+    # data.flagRCP(rcp)
+    if toFlag:
+        data.flagChannels(toFlag)
+        
+    if jup:
+        data.flagPosition(radius=50.)  # should be enough, even for Jupiter
+    else:
+        data.flagPosition(radius=35.)
+        
+    data.zeroStart()
+    data.flagRms(below=0.1)
+    data.medianNoiseRemoval(chanRef=-1,nbloop=1,factor=0.99)
+    if not jup:
+        i0 = 1+288*arange(8)
+        for num in range(8):
+            i = i0[num]
+            data.MessHand.info(" ... subtracting median noise sub-array %i / 8"%(num+1))
+            data.medianNoiseRemoval(range(i,i+288),chanRef=-2,factor=0.99,nbloop=1)
+        
+    data.polynomialBaseline(order=1)
+    # data.computeWeight()
+    data.unflag(flag=8)
+ 
+
+def redstrong(scannum,subscans=[],band=450,tau=0,radius=26.,nshift=0,Az=0.,El=0.,showNEFD=0):
+    """
+    redstrong(scannum,subscans=[],band=450,tau=0,radius=26.,nshift=0,Az=0.,El=0.)
+      Special function for reducing pointings on very strong sources (e.g. Jupiter)
+    INP:
+      scannum (int)    : scan number
+      subscans (i list): list of subscans (optional)
+      band (int)       : select 350 or 450 microns
+      tau (float)      : zenith opacity; if tau=0 (the default), opacity correction is applied
+                         based on PWV written in the scan, and linear conversion
+      radius (float)   : the radius used to flag the source. Default = 26''. If a
+                         negative value (-N) is given, the radius is N*BeamSize.
+      nshift (int)     : number of frames by which to shift the data (optional)
+      Az/El (float)    : source offset positions
+    """
+    # Read the data
+    readPWV = not tau
+    febe = "ARTEMIS%3i-BEAR1"%(band)
+    tst = data.read(scannum,febe=febe,baseband=1,subscans=subscans,readPWV=readPWV)
+    if tst:
+        print " ***  Cannot read scan %s - Exiting !!  ***"%(str(scannum))
+        return -1
+
+    # In case we need to apply a shift...
+    if nshift:
+        shift(data,nshift)
+
+    # Convert V to Jy
+    mjd = data.ScanParam.MJD[0]
+    VtoJy = getArtemisCalFactor(mjd,band)
+    data.MessHand.info("Applying V-to-Jy factor: %6.3g" % (VtoJy))
+    data.Data *= array(VtoJy,'f') 
+
+    # Update RCP
+    rcp = getArtemisRCP(mjd,band)
+    data.MessHand.info("Using RCP file: %s" % (rcp))
+    data.BolometerArray.updateRCP(rcp)
+    data.flagRCP(rcp)
+    data.flagRms(below=0.1)  # in case some dead channels survived
+
+    # Flag source
+    if radius < 0:
+        radius = -1.*radius*data.BolometerArray.BeamSize
+    data.flagPosition(radius=radius,Az=Az,El=El)
+    data.zeroStart()
+    data.medianNoiseRemoval(chanRef=-1,nbloop=1,factor=0.99)
+    data.polynomialBaseline(order=1)
+
+    if showNEFD:
+        nefd = computeNEFD(data)
+	# Store the result in the data object
+        data.NEFD = nefd
+
+    # Correct for opacity
+    if not tau:
+        pwv = scanPWV(data)
+        tau =  pwv_to_tau(data,band=band)
+        data.MessHand.info("No opacity provided, using tau(PWV) = %4.2f (PWV = %4.2f mm)."%(tau,pwv))
+    data.correctOpacity(tau)
+
+    data._DataAna__statistics()
+    data.flagRms(below=0.1)  # just to be sure...
+    data._DataAna__statistics()
+    data.computeWeight()
+    data.unflag(flag=8)
+
+    # Build a map and solve for pointing
+    if band == 350:
+        map_size = 40
+    elif band == 450:
+        map_size = 50
+        
+    data.doMap(sizeX=[-map_size,map_size],sizeY=[-map_size,map_size],oversamp=9,noPlot=1)
+    data.Map.smoothBy(data.BolometerArray.BeamSize / 3.)
+    data.solvePointingOnMap(plot=1,radius=-5)
+    if data.PointingResult != -1:
+        d_az = data.PointingResult['gauss_x_offset']['value']
+        d_el = data.PointingResult['gauss_y_offset']['value']
+        print "####################################"
+        print "# pcorr %5.1f, %5.1f "%(d_az,d_el)
+        print "###################################"
+        
+# -----------------------------------------------------------------
+def process(data,scannum,subscans=[],band=350,weak=0,bright=0,tau=0,
+            nshift=0,showNEFD=0,mask=None,threshold=0.):
+    """
+    process(data,scannum,subscans=[],band=350,weak=0,bright=0,tau=0,nshift=0,showNEFD=0):
+      Full, basic processing of a scan, including reading.
+    INP:
+      scannum (int)    : scan number
+      subscans (i list): list of subscans (optional)
+      band (int)       : select 350 or 450 microns
+      weak (bool)      : if set, more processing steps are performed, to decrease the noise
+      bright (bool)    : if set, flag central position before zeroStart
+      tau (float)      : zenith opacity; if tau=0 (the default), opacity correction is applied
+                         based on PWV written in the scan, and ATM model used for SABOCA
+      nshift (int)     : number of frames by which to shift the data (optional)
+      showNEFD (bool)  : should the NEFD be computed and displayed?
+    """
+    # Useful stuff
+    i0 = 1+288*arange(8)
+    
+    # Read the data
+    readPWV = not tau
+    febe = "ARTEMIS%3i-BEAR1"%(band)
+    tst = data.read(scannum,febe=febe,baseband=1,subscans=subscans,readPWV=readPWV)
+    if tst:
+        print " ***  Cannot read scan %s - Exiting !!  ***"%(str(scannum))
+        return -1
+    if not data.ScanParam.NInt:
+        print " **  File is there but contains no data... exiting ! **"
+        return -2
+    
+    # In case we need to apply a shift...
+    if nshift:
+        shift(data,nshift)
+
+    # Start standard reduction
+    firstSteps(data,band=band,bright=bright,mask=mask,threshold=threshold)
+
+    # Additional processing
+    if bright:
+        if band == 450:
+            data.flagPosition(radius=data.BolometerArray.BeamSize * 2.)
+        else:
+            data.flagPosition(radius=data.BolometerArray.BeamSize * 3.)
+
+    # Flag model, if any
+    if mask:
+        data.flagSource(model=mask,threshold=threshold)
+
+    if weak:
+        for num in range(8):
+            i = i0[num]
+            data.MessHand.info(" ... subtracting median noise sub-array %i / 8"%(num+1))
+            data.medianNoiseRemoval(range(i,i+288),chanRef=-2,factor=0.99,nbloop=1)
+            
+        data.flagNan()
+        if data.ScanParam.NObs > 1:
+            data.MessHand.info("Subtracting polynomial baseline per subscan...")
+            data.polynomialBaseline(order=1,subscan=1)
+        else:
+            data.MessHand.info("Filtering out low-frequency noise...")
+            data.flattenFreq(below=0.2,hiref=0.3)
+
+    # Automatic flaging of outliers per array
+    for i in i0:
+        data.flagFractionRms(range(i,i+288),ratio=2.5)
+    data.despike()
+    data.flagFractionRms(ratio=5)
+
+    if showNEFD:
+        nefd = computeNEFD(data)
+	# Store the result in the data object
+        data.NEFD = nefd
+
+    # Correct for opacity
+    if not tau:
+        pwv = scanPWV(data)
+        # tau = get_model_tau('saboca',pwv)
+        tau =  pwv_to_tau(data,band=band)
+        data.MessHand.info("No opacity provided, using tau(PWV) = %4.2f (PWV = %4.2f mm)."%(tau,pwv))
+    data.correctOpacity(tau)
+
+    # Finally, compute weights
+    data._DataAna__statistics()
+    data.computeWeight(subscan=1)
+    if bright or mask:
+        data.unflag(flag=8)
+
+    return 0
+
+# -----------------------------------------------------------------
+def redpnt(scannum,subscans=[],band=450,weak=0,bright=1,tau=0,nshift=0,getresult=0,showNEFD=0):
+    """
+    redpnt(scannum,subscans=[],band=450,weak=0,bright=1,tau=0,nshift=0,getresult=0,showNEFD=0):
+      Reads and processes a pointing scan. Optionnally returns pointing result.
+    INP:
+      scannum (int)    : scan number
+      subscans (i list): list of subscans (optional)
+      band (int)       : select 350 or 450 microns
+      weak (bool)      : if set, more processing steps are performed, to decrease the noise
+      bright (bool)    : if set, flag central position before zeroStart
+      tau (float)      : zenith opacity; if tau=0 (the default), opacity correction is applied
+                         based on PWV written in the scan, and ATM model used for SABOCA
+      nshift (int)     : number of frames by which to shift the data (optional)
+      getresult (bool) : if set, returns the PointingResult
+      showNEFD (bool)  : should the NEFD be computed and displayed?
+    """
+    # Read the data and start processing
+    tst = process(data,scannum=scannum,subscans=subscans,band=band,weak=weak,bright=bright,
+                  tau=tau,nshift=nshift,showNEFD=showNEFD)
+    if tst:
+        # something went wrong...
+        return -1
+
+    # Build a map and solve for pointing
+    if band == 350:
+        map_size = 40
+    elif band == 450:
+        map_size = 50
+        
+    data.doMap(sizeX=[-map_size,map_size],sizeY=[-map_size,map_size],oversamp=9,noPlot=1)
+    data.Map.smoothBy(data.BolometerArray.BeamSize / 3.)
+    data.solvePointingOnMap(plot=1,radius=-3)
+    if data.PointingResult != -1:
+        d_az = data.PointingResult['gauss_x_offset']['value']
+        d_el = data.PointingResult['gauss_y_offset']['value']
+        print "####################################"
+        print "# pcorr %5.1f, %5.1f "%(d_az,d_el)
+        print "###################################"
+
+    if getresult:
+        return data.PointingResult
+
+# -----------------------------------------------------------------
+def redweak(scannum,subscans=[],band=450,tau=0,nshift=0):
+    """
+    redweak(scannum,subscans=[],band=450,tau=0,nshift=0,getresult=0):
+      Full processing of a scan, with reduction optimised for weak sources.
+      Then, builds a map and tries to solve for pointing.
+    INP:
+      scannum (int)    : scan number
+      subscans (i list): list of subscans (optional)
+      band (int)       : select 350 or 450 microns
+      tau (float)      : zenith opacity; if tau=0 (the default), opacity correction is applied
+                         based on PWV written in the scan, and ATM model used for SABOCA
+      nshift (int)     : number of frames by which to shift the data (optional)
+    """
+    redpnt(scannum=scannum,subscans=subscans,band=band,weak=1,bright=0,
+		   tau=tau,nshift=nshift,getresult=0)
+
+# -----------------------------------------------------------------
+def redcal(scannum,subscans=[],band=450,tau=0,nshift=0,showNEFD=0):
+    """
+    redcal(scannum,subscans=[],band=450,tau=0,nshift=0):
+      Processes a calibration scan. Returns the ratio between measured and expected fluxes.
+    INP:
+      scannum (int)    : scan number
+      subscans (i list): list of subscans (optional)
+      band (int)       : select 350 or 450 microns
+      tau (float)      : zenith opacity; if tau=0 (the default), opacity correction is applied
+                         based on PWV written in the scan, and ATM model used for SABOCA
+      nshift (int)     : number of frames by which to shift the data (optional)
+    """
+    res = redpnt(scannum=scannum,subscans=subscans,band=band,weak=1,bright=1,
+		 tau=tau,nshift=nshift,getresult=1,showNEFD=showNEFD)
+    if res == -1:
+        data.MessHand.warning("Could not fit the source, exiting.")
+        return -1
+
+    source_name = data.ScanParam.Object
+    if band == 350:
+        calibFluxes = calibF350
+    else:
+        calibFluxes = calibF450
+        
+    if calibFluxes.has_key(string.upper(source_name)):
+        expect_flux = calibFluxes[string.upper(source_name)]
+    elif source_name in ['Uranus','Neptune','Mars',
+			 'Saturn','Jupiter','Venus']:
+        astrotime,astrodate=getAstroDate(data)
+        if band == 350:
+   	        # beam = 7.5  # ~ instrumental beam
+                #beam = 8.12   # after 1/2-beam smoothing
+                beam = 7.65   # after 1/3-beam smoothing
+	        freq = 865.
+        else:
+   	        # beam = 9.4  # instrumental beam
+                #beam = 10.55  # after 1/2-beam smoothing
+                beam = 9.95   # after 1/3-beam smoothing
+	        freq = 666.
+        expect_flux = PlanetFlux(source_name,astrotime,astrodate,
+				 str(beam),str(freq))
+    else:
+        print "Calibrator not found. Exiting !!"
+        return 0.
+        
+    obsflux = res['gauss_peak']['value']
+    percent = 100.0*obsflux/expect_flux
+    print "-----------------------------------------------------------"
+    print "FLUX %s:  %7.2f [expected: %7.2f, %6.2f percent]"%(source_name,obsflux,expect_flux,percent)
+    print "-----------------------------------------------------------"
+    return obsflux/expect_flux
+
+
+# -----------------------------------------------------------------
+def redfoc(scannum,band=450,nshift=0):
+    """
+    redfoc(scannum,band=450,nshift=0):
+      Reads and processes a focus scan (observed in staring mode, NOT mapping).
+    INP:
+      scannum (int)    : scan number
+      band (int)       : select 350 or 450 microns
+      nshift (int)     : number of frames by which to shift the data (optional)
+    """
+    
+    febe = "ARTEMIS%3i-BEAR1"%(band)
+    tst = data.read(scannum,febe=febe,baseband=1,readPWV=0)
+    if tst:
+        print " ***  Cannot read scan %s - Exiting !!  ***"%(str(scannum))
+        return -1
+
+    # In case we need to apply a shift...
+    if nshift:
+        shift(data,nshift)
+
+    # Start standard reduction
+    firstSteps(data,band=band,bright=0,applyFF=0,skydip=1)  # do not subtract any correlated noise
+
+    Plot.panels(2,2)
+    Plot.nextpage()  # start a new page
+    # First plot = signal before skynoise removal
+    four = data.BolometerArray.fourpixels()
+    data.signal(four,noerase=1,caption=data.ScanParam.caption()+' - Raw signal')
+    Plot.nextpage()
+    data.solveFocus(noerase=1,caption=' ')
+    Plot.xyout(0.,0.,str("%5.2f +- %4.2f"%(data.FocusOffset,data.FocusError)),size=2)
+
+    # again after skynoise removal
+    data.medianNoiseRemoval(computeFF=0,chanRef=-1,nbloop=1)
+    Plot.nextpage()
+    data.signal(four,caption='Skynoise subtracted',noerase=1)
+    Plot.nextpage()
+    data.solveFocus(noerase=1,caption=' ')
+    Plot.xyout(0.,0.,str("%5.2f +- %4.2f"%(data.FocusOffset,data.FocusError)),size=2)
+    Plot.panels(1,1)
+
+    type = data.ScanParam.ScanType
+    type = type[6]
+    print "####################################"
+    print str("# fcorr %5.2f"%(data.FocusOffset)) + ", '" + type + "'"
+    print "###################################"
+    return data.FocusOffset
+
+# -----------------------------------------------------------------
+def redmfoc(scannum,band=450,tau=0,nshift=0,pause=0,s2n=0,super=0):
+    """
+    redmfoc(scannum,band=450,tau=0,nshift=0,pause=0,s2n=0):
+      Reduction of a mapping focus scan.
+    INP: 
+      scannum (int)    : scan number
+      band (int)       : select 350 or 450 microns
+      tau (float)      : zenith opacity; if tau=0 (the default), opacity correction is
+                         applied based on PWV written in the scan, and ATM model used for
+                         SABOCA. In this case, PWV is determined for each subscan.
+      nshift (int)     : number of frames by which to shift the data (optional)
+      pause (bool)     : if set, wait for user to press <return> after processing each subscan
+      s2n (bool)       : if set, computes the source fitting on S/N rather than flux maps
+    """
+    iflux,isize,isdev,ifocus = [],[],[],[]
+    for i in range(1,6):
+        tst = process(data,scannum=scannum,subscans=[i],band=band,
+				  weak=1,bright=1,tau=tau,nshift=nshift)
+        if tst:
+            # something went wrong...
+            return -1
+
+        # Build a map and solve for pointing
+        if band == 350:
+            map_size = 40
+        elif band == 450:
+            map_size = 50
+        
+        # data.doMap(sizeX=[-map_size,map_size],sizeY=[-map_size,map_size],oversamp=9,noPlot=1)
+        # data.Map.smoothBy(data.BolometerArray.BeamSize / 3.)
+        # ## data.doMap(sizeX=[-60,60],sizeY=[-60,60],oversamp=5,noPlot=1)
+        # if s2n:
+        #     # Compute S/N map
+        #     data.Map.Data *= sqrt(data.Map.Weight)
+        ######
+        # Changed 2017-07-17
+        if super:
+            data.doMap(system='eq',oversamp=5,noPlot=1)
+            data.Map.smoothBy(data.BolometerArray.BeamSize / 3. / 3600.)
+            s2n = copy.deepcopy(data.Map)
+            s2n.Data *= sqrt(data.Map.Weight)
+            data.flagSource(model=s2n,threshold=10.)
+            data.flattenFreq(below=0.5,hiref=0.8)
+            data._DataAna__statistics()
+            data.computeWeight()
+            data.unflag(flag=8)
+            data.doMap(sizeX=[-map_size,map_size],sizeY=[-map_size,map_size],oversamp=9,noPlot=1)
+            data.Map.smoothBy(data.BolometerArray.BeamSize / 3.)
+            data.solvePointingOnMap(radius=-3,plot=0)
+            pres = data.PointingResult
+            d_az = data.PointingResult['gauss_x_offset']['value']
+            d_el = data.PointingResult['gauss_y_offset']['value']
+            data.solvePointingOnMap(radius=-2,Xpos=d_az,Ypos=d_el,plot=1)
+        else:
+            data.doMap(sizeX=[-map_size,map_size],sizeY=[-map_size,map_size],oversamp=9,noPlot=1)
+            data.Map.smoothBy(data.BolometerArray.BeamSize / 3.)
+            data.solvePointingOnMap(radius=-3,plot=1)
+
+        if i == 1:
+            modType = data.ScanParam.ScanType
+
+        pres = data.PointingResult
+        if pres != -1:
+            iflux.append(pres['gauss_peak']['value'])
+            isize.append((pres['gauss_x_fwhm']['value'] +
+						  pres['gauss_y_fwhm']['value'])/2.)
+            isdev.append(data.Map.RmsBeam)
+            focVal = data.ScanParam.get(modType,subscans=[i])
+            ifocus.append(fStat.f_median(focVal))
+
+#	except Exception, ex:
+#		print ex
+			    
+        if pause:
+            print "Waiting to go on with next subscan..."
+            raw_input()
+            
+    ifocus = array(ifocus)
+    iflux  = array(iflux )
+    isdev  = array(isdev )
+    isize  = array(isize )
+
+    if string.find(modType.upper(),'TILT') > -1:
+        ifocus = ifocus*3600.
+        xLabel = modType +' Offsets [arcsec]'
+    else:
+        xLabel = modType +' Offsets [mm]'
+    yLabel = 'Flux density [Jy/b]'
+    
+    result1 = fitParabola(ifocus,iflux,isdev)
+    xx = arange(101.)/100.*(max(ifocus)-min(ifocus))+min(ifocus)
+    y1 = modelparabola(result1.params,xx)
+
+    # show data and fit optimal focus on peak flux
+    Plot.panels(1,2)
+    Plot.nextpage()
+    caption = data.ScanParam.caption()
+    Plot.plot(ifocus,iflux,style='p',
+              labelX=xLabel,labelY=yLabel,
+              caption=caption,noerase=1)
+    for i in range(len(ifocus)):
+        plot([ifocus[i],ifocus[i]],[iflux[i]+isdev[i],iflux[i]-isdev[i]],
+             overplot=1,style='l')
+    
+    Plot.plot(xx,y1,overplot=1,style='l')
+    if result1.params[2] < 0:
+        data.FocusOffset = result1.params[1]/(-2.0*result1.params[2])
+        if result1.perror:
+            data.FocusError  = result1.perror[1]/(-2.0*result1.params[2])
+            data.MessHand.info("Offset : %5.2f +- %5.2f (based on peak flux)" \
+                               %(data.FocusOffset,data.FocusError))
+        else:
+            data.FocusError  = 0.
+    else:
+        data.MessHand.warning("\033[1;31m WARNING: no focus offset found based on peak flux\033[0m")
+        data.FocusOffset = 0.
+        data.FocusError  = 0.
+
+    Plot.nextpage()
+    Plot.plot(ifocus,isize,style='p',
+              labelX=xLabel,labelY='FWHM [arcsec]',
+              caption=' ',noerase=1)
+
+    result2 = fitParabola(ifocus,isize,isdev)
+    y2 = modelparabola(result2.params,xx)
+    Plot.plot(xx,y2,overplot=1,style='l')
+
+    # the fit on FWHM must have a minimum, concavity up
+    # the second order coefficient must be positive
+    if result2.params[2] > 0 and result2.perror:
+        focusOffset2 = result2.params[1]/(-2.0*result2.params[2])
+        focusError2  = result2.perror[1]/(2.0*result2.params[2])
+        data.MessHand.info("Offset : %5.2f +- %5.2f (based on FWHM)" \
+                           %(focusOffset2,focusError2))
+    else:
+        data.MessHand.warning("\033[1;31m WARNING: no focus offset found based on FWHM\033[0m")
+        focusError2 = 0.
+        focusOffset2 = 0.
+
+    # Print the result: fcorr (weighted average of both results)
+    if data.FocusError > 0 and focusError2 > 0:
+        meanResult = data.FocusOffset / data.FocusError**2
+        meanResult += focusOffset2 / focusError2**2
+        meanResult /= (1./ data.FocusError**2 + 1./ focusError2**2)
+
+    elif data.FocusError == 0 and focusError2 > 0:
+        meanResult = focusOffset2    
+
+    elif data.FocusError > 0 and focusError2 == 0:
+        meanResult = data.FocusOffset
+    else:
+        meanResult = -1000.
+
+    if meanResult > -1000.:        
+        print "####################################"
+        print "# fcorr %6.2f, '%1s' "%(meanResult,modType[-1])
+        print "###################################"
+    else:
+        data.MessHand.warning("No focus correction could be computed.")
+    Plot.panels(1,1)
+
+
+#---------------------------------------------------
+def redsky(scannum,band=450,showPWV=1):
+    """
+    redsky(scannum,band=450):
+      Reduction of a skydip scan.
+    INP:
+      scannum (int)    : scan number
+      band (int)       : select 350 or 450 microns
+      showPWV (bool)   : if set, also displays PWV value from the data
+    """
+    
+    febe = str('ARTEMIS%3i-BEAR1'%(band))
+    tst = data.read(scannum,febe,baseband=1,readPWV=showPWV,readT=1)
+    if tst:
+        print "Problem reading scan %s - Exiting."%(str(scannum))
+        return -1
+
+    # Update RCP, calibrate to Jy...
+    # But don't apply flat-field (point source relative gains are NOT the same
+    # as relative response to sky emission).
+    # firstSteps(data,band=band,bright=0,applyFF=0,skydip=1)
+    # changed 2017-07-05: when skydip=1, applyFF uses the "ExtGain"
+    firstSteps(data,band=band,bright=0,applyFF=1,skydip=1)
+
+    ### 2017-07-07 - FOR A TEST...
+    #
+    ## data.Data *= array(1.5,'f')
+    
+    # Extract elevation and flux from the data
+    el = data.ScanParam.get('el')
+    # nObs = data.ScanParam.NObs
+    nObs = shape(data.ScanParam.SubscanIndex)[1]
+    if nObs > 1:
+        skydipflux = zeros((nObs),'f')
+        fluxerr    = zeros((nObs),'f')
+        elevation  = zeros((nObs),'f')
+    # else:
+    #     dumps = len(el)
+    #     skydipflux = zeros((dumps),'f')
+    #     fluxerr    = zeros((dumps),'f')
+    #     elevation  = zeros((dumps),'f')
+
+    # flag  outliers
+    data.flagFractionRms(ratio=3.)
+    data.flagFractionRms(ratio=2.)
+
+    # Compute sky signal as mean of all signals
+    ## flux = data._DataAna__computeMeanSignal()
+    allFluxes = data.getChanListData('flux',[])
+    ngood = len(data.BolometerArray.checkChanList([]))
+    if nObs > 1:
+        allMedian = zeros((ngood),'f')  # to store median val. per bolo
+        for i in range(nObs):
+            ind1 = data.ScanParam.SubscanIndex[0,i]
+            ind2 = data.ScanParam.SubscanIndex[1,i]
+            elevation[i]  = fStat.f_median(el[ind1:ind2])
+            #skydipflux[i] = fStat.f_median(flux[ind1:ind2])
+            #fluxerr[i]    = fStat.f_rms(flux[ind1:ind2],skydipflux[i])
+            for j in range(ngood):
+                allMedian[j] = fStat.f_median(allFluxes[j][ind1:ind2])
+            # take mean and rms of all bolo for flux and error
+            skydipflux[i] = fStat.f_mean(allMedian)
+            fluxerr[i]    = fStat.f_rms(allMedian,skydipflux[i])
+    else:
+        elevation = el
+        skydipflux = data._DataAna__computeMeanSignal()
+        ## fluxerr = sqrt(array(flux))
+        fluxerr = ones(len(skydipflux))
+        
+
+    # Convert to Kelvin - very approximate!
+    # hot  = 1000.
+    # VtoK = 1./20.
+
+    if band == 350:
+        Jy_to_K = 1./75.
+    elif band == 450:
+        Jy_to_K = 1./53.
+        
+    # skydiptemp = data.ScanParam.T_amb - (hot - skydipflux) * VtoK
+    skydiptemp = data.ScanParam.T_amb + skydipflux * Jy_to_K - 150.
+    
+    # skydiptemp = 190. + skydipflux * Jy_to_K
+    if nObs == 1:
+        temperr = sqrt(skydiptemp)
+    else:
+        temperr = fluxerr * Jy_to_K
+
+    # -------------------------------------------------------
+    # Fit on data
+    xx = array(elevation)
+    #yy = array(skydiptemp)
+    #ee = array(temperr)
+    yy = array(skydipflux)
+    ee = array(fluxerr)
+    
+    # First guess for TAtm: use T_amb from Monitor points
+    data.TAtm = data.ScanParam.T_amb
+    data.Tau  = 1.0
+    data.Feff = 0.95
+
+    # guess = [data.TAtm,data.Feff,data.Tau]
+
+    # -------------------------------------------------------
+    # Plot and print the results
+    # plot against airmass rather than elev.
+    #plot(xx,yy,labelX = 'Elevation [deg]',labelY = 'Sky emission [K]',
+    #     caption=data.ScanParam.caption(),style='l')
+    #plot(xx,yy,style='p',overplot=1)
+    air = 1./sin(xx*pi/180.)
+    plot(air,yy,labelX = 'Airmass',labelY = 'Sky emission [Jy]',
+         caption=data.ScanParam.caption(),style='l',logX=1)
+    plot(air,yy,style='p',overplot=1)
+    if nObs > 1:
+        for i in range(nObs):
+            #plot(xx[i]+array([-2,2,0,0,2,-2],'f'),yy[i]+ee[i]*array([-1,-1,-1,1,1,1],'f'),
+            #     overplot=1,style='l')
+            plot(air[i]*array([0.95,1.05,1.0,1.0,1.05,0.95],'f'),yy[i]+ee[i]*array([-1,-1,-1,1,1,1],'f'),
+                 overplot=1,style='l')
+            # print "i = ",i,skydipflux[i],fluxerr[i],skydiptemp[i],temperr[i]
+
+
+    # # Fit using scipy.optimize
+    # popt,pcov = optimize.curve_fit(fnSkydip,xx,yy,p0=guess,sigma=ee)
+    # perr = np.sqrt(np.diag(pcov))
+    # data.MessHand.info("   ----   skydip  results   ----")
+    # data.MessHand.info("Fit using scipy.optimize ")
+    # data.MessHand.info("tau_z  = %5.3f +- %5.3f"%(popt[2],perr[2]))
+    # # data.MessHand.info("F_eff  = %5.3f +- %5.3f"%(popt[1],perr[1]))
+    # # data.MessHand.info("T_atm  = %5.1f +- %5.1f"%(popt[0],perr[0]))
+    # # data.MessHand.info("offset = %5.1f +- %5.1f"%(popt[3],perr[3]))
+    
+    
+    # Fit using mpfit
+    # guess = [data.TAtm,data.Tau,data.Feff,Jy_to_K,0.]
+    # work out first-guess values - not so trivial!
+    if band == 350:
+        Jy_to_K = 1./75.
+        F_eff   = 0.80
+    elif band == 450:
+        Jy_to_K = 1./53.
+        F_eff   = 0.85
+    Tatm  = data.ScanParam.T_amb
+    tau_z = log(1./Jy_to_K * F_eff * Tatm / (yy[-1] - yy[0]))
+    S_0   = yy[-1] - 1./Jy_to_K * Tatm
+    guess = [Tatm,tau_z,F_eff,Jy_to_K,S_0]
+    # 2017-07-18: addind a coupling term
+    coupl = 0.8
+    guess.append(coupl)
+    print " --- Fitting skydip function - Initial guess:"
+    print "  F_eff = ",F_eff
+    print "  Tatm  = ",Tatm
+    print "  KtoJy = ",1./Jy_to_K
+    print "  S_0   = ",S_0
+    print "  tau_z = ",tau_z
+    print "  coupl = ",coupl
+    
+    ## !! Here is the call to the fitting function
+    #####
+    # m1 = fitSkydipn(xx,yy,ee,guess)
+    #m1 = fitSkydipPlus(xx,yy,ee,guess)
+    m1 = fitSkydipFull(xx,yy,ee,guess)
+
+
+    # # Overplot the fitted model
+    #y2 = modelSkydipn(m1.params,xx)
+    #y2 = modelSkydipPlus(m1.params,xx)
+    y2 = modelSkydipFull(m1.params,xx)
+    #plot(xx,y2,overplot=1,ci=2,style='l',width=5)
+    plot(air,y2,overplot=1,ci=2,style='l',width=5)
+    # y2 = fnSkydip(xx,popt[0],popt[1],popt[2] )    
+    # plot(xx,y2,overplot=1,ci=2,style='l',width=5)
+    
+    data.MessHand.info("   ----   skydip  results   ----")
+    # data.MessHand.info("Fit results with mpfit ")
+    data.MessHand.info("tau_z = %5.3f +- %5.3f"%(m1.params[1],m1.perror[1]))
+    data.MessHand.info("F_eff  = %5.3f +- %5.3f"%(m1.params[2],m1.perror[2]))
+    data.MessHand.info("T_atm  = %5.1f +- %5.1f"%(m1.params[0],m1.perror[0]))
+    data.MessHand.info("K_2_Jy = %5.1f +- %5.1f"%(1./m1.params[3],m1.perror[3]))
+    # data.MessHand.info("Offset = %5.1f +- %5.1f"%(m1.params[4],m1.perror[4]))
+    data.MessHand.info("Coupl  = %5.3f +- %5.3f"%(m1.params[5],m1.perror[5]))
+
+    # Also display the PWV
+    if showPWV:
+        meanPWV,rmsPWV = scanPWV(data,rms=1)
+        data.MessHand.info(" PWV   = %5.3f +- %5.3f"%(meanPWV,rmsPWV))
+
+    # -------------------------------------------------------
+    # Return results
+    zenithtau = m1.params[1]
+    # if showPWV:
+    #     return zenithtau,m1.perror[1],meanPWV,rmsPWV
+    # else:
+    #     return zenithtau,m1.perror[1]
+
+    # changed 2017-06-21: also return Feff and Tatm
+    if showPWV:
+        return zenithtau,m1.perror[1],m1.params[2],m1.params[0],m1.params[3],meanPWV,rmsPWV
+    else:
+        return zenithtau,m1.perror[1],m1.params[2],m1.params[0],m1.params[3]
+    # return m1
+
+    ## return popt[2]  # ,perr[2],meanPWV,rmsPWV
+

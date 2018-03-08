@@ -1,0 +1,8 @@
+56000.0   57500.0  0.8    0.6    # Any data prior to 2016
+57538.0   57569.0  1.50   0.10   # for 2016 June run  - updated 2017-06-09
+57662.0   57692.0  0.798  0.546  # for 2016 Oct. run
+57692.0	  57753.0  1.30   0.25   # for 2016 Nov.-Dec. run  - updated 2017-06-09
+57753.0   57915.0  2.18   0.0    # starting 2017-01-01 - values updated 2018-01-19
+57915.0   57930.0  1.42   0.18   # 2017 June, before replacing M2 - updated 2018-01-19
+57930.0   57950.0  1.78   0.0    # 2017-06-26 (after sub-ref exchange) to 2017-07-05 - updated 2018-01-19
+57950.0   60000.   1.95  -0.10   # starting 2017-07-25 (added 2018-01-19)

@@ -1,0 +1,6 @@
+56481.5000 56539.8611 artemis2016_mars_boa_30429_rcp450.dat
+57538.0    57569.0    ARTEMIS450_2016-06.rcp        # 2016-05-30 to 2016-06-30
+57569.0    57692.0    ARTEMIS450_2016-11.rcp
+57692.0	   57800.0    ARTEMIS450_2016-11.rcp        # 2016-11-01 to 2017...
+57800.0    57930.0    ARTEMIS450_2017-06.rcp        # ext. gains computed on June 2017 data
+57930.0    60000.0    ARTEMIS450_2017-07.rcp        # starting 2017-06-26 (after sub-ref exchange)

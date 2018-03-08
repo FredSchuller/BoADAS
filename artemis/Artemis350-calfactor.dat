@@ -1,0 +1,10 @@
+56480.0   56539.87 1.0e5    # V-to-Jy factor 2013-08-30 
+56539.88  56809.11 1.3e5    # new value after bias change (2013-09-04)
+56809.11  57022.0  1.0e5    # Dummy value after bigger array installation (2014-05-02)
+57538.0   57569.0  1.64e5   # 2016 June run - updated 2017-12-14
+57662.0   57692.0  2.89e5   # 2016 Oct. run - updated 2017-02-22
+57692.0	  57753.0  2.01e5   # 2016 Nov-Dec run - updated 2017-12-14
+57753.0   57900.0  1.01e5   # starting 2017-01-01 - updated 2018-01-18
+57900.0   57930.0  2.16e5   # 2017 June, before replacing M2 - updated 2018-01-18
+57930.0   57950.0  1.30e5   # 2017-06-26 (after M2 exchange) to 2017-07-05 - updated 2018-01-18
+57950.0   60000.0  1.56e5   # After 2017-07-25 - added 2018-01-18

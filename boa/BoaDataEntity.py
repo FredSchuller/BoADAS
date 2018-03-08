@@ -1661,10 +1661,11 @@ class ScanParameter:
                         self.WobblerSta.extend(reader.read("WobblerSta",subsnum=subscan,febe=febe))
                     
                     # Refraction
-                    if self.Frames[:2] == 'HO':
-                        self.Refraction.append(reader.read("Refract",subsnum=subscan))
-                    else:
-                        self.Refraction.append([0])
+                    # Changed 2017-12-01: ALWAYS read and store 
+                    # if self.Frames[:2] == 'HO':
+                    self.Refraction.append(reader.read("Refract",subsnum=subscan))
+                    # else:
+                    #    self.Refraction.append([0])
 
                     # Ambient temperature at scan start
                     if readT and subscan == subscans[0]:
@@ -1737,6 +1738,7 @@ class ScanParameter:
                             pwv=reader.read("PWV",subsnum=subscan)
                             self.PWV.append(pwv)
 
+                        
                     ######################################################
                     # Fill the subscans related fields
                     SubscanNum.append(subscan)

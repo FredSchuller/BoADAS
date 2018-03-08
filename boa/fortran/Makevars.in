@@ -1,0 +1,4 @@
+# Machine specific variables are set here:
+
+F2PY_libs = @FCLIBS@ @FLIBS@
+

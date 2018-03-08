@@ -843,7 +843,7 @@ class ApexMBFitsReader(MBFitsReader):
             "PWV":            {"function": self._readPWV,
                                "setArgs": {},
                                "addArgs": ["subsnum"]},
-            
+
             "WobblerSta": {"function": self._readWobblerSta,
                           "setArgs": {},
                           "addArgs": ["subsnum", "febe"]},
@@ -1471,6 +1471,16 @@ class ApexMBFitsReader(MBFitsReader):
             monPWV = self._readMonValue(monpoint="PWV",
                                         subsnum=subsnum)
             return monPWV
+        except Exception, data:
+            raise MBFitsReaderError(str(data))
+
+    # -----------------------------------------------------------------
+
+    def _readRefraction(self, subsnum):
+        try:
+            monRefrac = self._readMonValue(monpoint="REFRACTION",
+                                        subsnum=subsnum)
+            return monRefrac
         except Exception, data:
             raise MBFitsReaderError(str(data))
 

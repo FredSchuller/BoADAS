@@ -1,0 +1,84 @@
+#!/usr/bin/env python
+
+# APEX - Atacama Pathfinder EXperiment Project
+#
+# who       when        what
+# --------  ----------  ----------------------------------------------
+# aweiss    2010-05-15  Added calculation of sensitivity
+# mdumke    2010-05-13  Added code to fill the InstrumentMonitor DB
+#                       Changed mjdref to middle of scan
+# alundgre  2010-04-11  Sign switch commented out
+# schuller  2009-09-15  major revision
+# mdumke    2009-07-03  Created
+#                       Initial version based on t-081.f-0003 macros
+# 
+'''
+Name: sweakmap.boa
+
+Pointmap reduction (weak sources) for SABOCA
+'''
+
+if not os.getenv('BOA_HOME_SABOCA'):
+   raise 'Environment variable BOA_HOME_SABOCA undefined'
+execfile(os.getenv('BOA_HOME_SABOCA')+'/boaSaboca.py')
+
+# This script assumes that the data has been read + opacity corrected
+# already in the calling routine
+data.zeroStart()
+#data.Data *= array(-1,'f') # commented out 2010-04-11, ALU
+data.Data *= array(VtoJy,'f')
+nr = len(data.ScanParam.MJD)
+mjdref = data.ScanParam.MJD[int(nr/2)]
+rcp=getSabocaRCP(mjdref)
+data.MessHand.info("RCP file : %s " % rcp)
+data.BolometerArray.updateRCP(rcp)
+#
+bad=getSabocaCross(mjdref)
+data.MessHand.info("Bad channels : %s " % bad)
+data.flagChannels(bad)
+#
+inverted=getSabocaInvert(mjdref)
+data.MessHand.info("Inverted channels : %s " % inverted)
+invertSomeChannels(inverted)
+#
+data.flatfield()
+
+data.flagSpeed(below=10.)
+data.flagSpeed(above=150.)
+data.flagAccel(above=800.)
+
+
+data.flagPosition(radius=15,flag=8)
+data.medianNoiseRemoval(chanRef=-1,factor=0.96,nbloop=3)
+data.flagFractionRms(ratio=5)
+
+# subtract more correlated noise
+data.medianNoiseRemoval(chanRef=-1,factor=0.98,nbloop=2)
+data.flagFractionRms(ratio=3)
+    
+# subtract correlated noise by group correponding to SQIFs
+data.medianNoiseRemoval(range(1,11),chanRef=-1,factor=0.95,nbloop=3)
+data.medianNoiseRemoval(range(11,20),chanRef=-1,factor=0.95,nbloop=3)
+data.medianNoiseRemoval(range(20,29),chanRef=-1,factor=0.95,nbloop=3)
+data.medianNoiseRemoval(range(29,38),chanRef=-1,factor=0.95,nbloop=3)
+data.polynomialBaseline(order=1)
+data.despike()
+data.flagFractionRms(ratio=3)
+despike()
+data.flattenFreq(below=0.2,hiref=0.35)
+despike()
+base(order=1)
+data.computeWeight()
+data.unflag(flag=8)
+
+data.despike()
+data.despike()
+data.doMap(sizeX=[-50,50],sizeY=[-50,50],oversamp=5,noPlot=1)
+smoothBy(2.5)
+data.solvePointingOnMap(plot=1,radius=30)
+daz=data.PointingResult['gauss_x_offset']['value']
+delev=data.PointingResult['gauss_y_offset']['value']
+
+print "####################################"
+print "# pcorr %5.1f, %5.1f "%(daz,delev)
+print "###################################"

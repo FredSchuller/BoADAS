@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+# reduce-calibrator.boa
+# APEX - Atacama Pathfinder EXperiment Project
+#
+# who       when        what
+# --------  ----------  ----------------------------------------------
+# gsiringo  2010-May-24 created using the LABOCA calib.boa
+#			it uses saboca-secondary-fluxes.py
+#                       under $BOA_HOME_SABOCA
+# fschuller 2010-06-01  some cleaning; fit on the map only
+#
+
+from fortran import fStat
+import string
+
+if not os.getenv('BOA_HOME_SABOCA'):
+   raise 'Environment variable BOA_HOME_SABOCA undefined'
+
+sabocadir = os.getenv('BOA_HOME_SABOCA') + '/'
+execfile(sabocadir + 'saboca-cabling.py')
+execfile(sabocadir + 'boaSaboca.py')
+execfile(sabocadir + 'saboca-secondary-fluxes.py')
+execfile(sabocadir + 'saboca-planet-flux.py')
+
+data.zeroStart()
+data.Data *= array(VtoJy,'f')
+
+mjdref = data.ScanParam.MJD[0]
+rcp=getSabocaRCP(mjdref)
+data.MessHand.info("RCP file : %s " % rcp)
+data.BolometerArray.updateRCP(rcp)
+#
+bad=getSabocaCross(mjdref)
+data.MessHand.info("Bad channels : %s " % bad)
+data.flagChannels(bad)
+#
+inverted=getSabocaInvert(mjdref)
+data.MessHand.info("Inverted channels : %s " % inverted)
+invertSomeChannels(inverted)
+#
+data.flatfield()
+
+data.flagFractionRms()
+data.flagSpeed(below=10.)
+data.flagSpeed(above=150.)
+data.flagAccel(above=800.)
+
+base(order=1)
+data.flagPosition(radius=30,flag=8)
+medianNoiseRemoval(chanRef=-1,factor=0.8,nbloop=5)
+base(order=0)
+
+source_name = data.ScanParam.Object
+
+if source_name not in ['Mars','Saturn','Jupiter','Venus']:
+	data.flagFractionRms(ratio=5)
+	medianNoiseRemoval(chanRef=-1,factor=0.8,nbloop=5)
+        base(order=0)
+
+if source_name in ['Saturn','Jupiter']:
+	unflag(flag=8)
+	data.flagPosition(radius=50,flag=8)
+	
+if source_name != 'Mars':
+   weight()
+
+unflag(flag=8)
+data.doMap(sizeX=[-50,50],sizeY=[-50,50],oversamp=5,noPlot=1)
+
+print "Solving for pointing on map..."
+solvePointingOnMap(plot=1,radius=20)
+obsfluxmap = data.PointingResult['gauss_peak']['value']
+daz=data.PointingResult['gauss_x_offset']['value']
+delev=data.PointingResult['gauss_y_offset']['value']
+
+expect_flux = 0.
+
+if source_name in ['Uranus','Neptune','Mars','Saturn','Jupiter','Venus']:
+	astrotime,astrodate=getAstroDate(data)
+
+        if string.find(data.BolometerArray.FeBe,'SABOCA') >= 0:
+		beam = 8.0
+                freq = 852.0
+
+
+# NOTE: the following call uses the function PlanetFlux
+# defined in $BOA_HOME_SABOCA/saboca-planet-flux.py
+#
+	print source_name,astrotime,astrodate,str(beam),str(freq)
+        expect_flux = PlanetFlux(source_name,astrotime,astrodate,str(beam),str(freq))
+else:
+	if calibFluxes.has_key(string.upper(source_name)):
+		expect_flux = calibFluxes[string.upper(source_name)]
+
+if expect_flux > 0:
+        obsflux = obsfluxmap		
+	percent = 100.0*obsflux/expect_flux
+        print "-------------------------------------------------------------"
+        print "FLUX %s:  %7.2f [expected: %7.2f, %6.2f percent]"%(source_name,obsflux,expect_flux,percent)
+        print "-------------------------------------------------------------"
+
+else:
+        print "Calibrator not found in saboca-secondary-fluxes.py"

@@ -1,0 +1,40 @@
+# saboca-secondary-fluxes.py
+# Fluxes for secondary calibrators, version 2010-May-05
+# Created 2010-May-05 - G. Siringo
+#
+# This table is used by the BoA script scalib.boa - called by "redscal" from BoA
+# Note: use ONLY UPPERCASE in the source names, the reduction script relies on that
+
+# NOTE: as of May 2010 no reliable determination of 
+# calibrators yet available - values for testing
+# to be replaced soon
+# Jun 2010: 1st iteration values entered - MDU
+
+calibFluxes = {
+    'CRL618'   : 19.2,
+    'V883-ORI' : 12.33,
+    'N2071IR'  : 36.4,
+    'VYCMA'    : 10.14,
+    'B13134'   : 180.0,
+    'IRAS16293': 135.0,
+    'G10.62'   : 340.0,
+    'G34.3'    : 430.0,
+    'G45.1'    : 105.0,
+    'K3-50A'   : 112.0,
+    'CRL2688'  : 49.0,
+    'CW-LEO'   : 26.0,
+    'HLTAU'    : 8.0,
+    'G5.89'    : 230.0,
+    'NGC253'   : 45.0,
+    'IRAS16342': 9.5
+    }
+
+
+# Add a few synonyms
+calibFluxes['VY-CMA']    = calibFluxes['VYCMA']
+calibFluxes['J1800-241'] = calibFluxes['G5.89']
+calibFluxes['IRC+10216'] = calibFluxes['CW-LEO']
+calibFluxes['N253'] = calibFluxes['NGC253']
+calibFluxes['NGC-253'] = calibFluxes['NGC253']
+calibFluxes['IRAS16342-38'] = calibFluxes['IRAS16342']
+

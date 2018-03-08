@@ -1,0 +1,147 @@
+#!/usr/bin/env python
+
+# APEX - Atacama Pathfinder EXperiment Project
+#
+# who       when        what
+# --------  ----------  ----------------------------------------------
+# mdumke    2010-05-01  Added flagging & inverting as f(MJD)
+# alundgre  2010-04-11  Sign switch commented out
+# mdumke    2010-03-22  rename to sskydip.boa during cleanup
+#                       code cleanup
+# schuller  2009-2010   various updates
+# aweiss    2009-2010   various updates
+# aweiss    2008-10-07  created (as reduce-saboca-skydip.boa)
+#
+# Boa script to process a bolotip observation
+# This srcipt assumes that the data file has been read already !!
+#
+'''
+Name: sskydip.boa
+
+Skydip reduction for SABOCA
+'''
+
+from boa import BoaSkydip
+from boa.Utilities import modelSkydip,fitSkydip
+from boa.fortran import fStat
+
+import os
+if not os.getenv('BOA_HOME_SABOCA'):
+   raise 'Environment variable BOA_HOME_SABOCA undefined'
+
+execfile(os.getenv('BOA_HOME_SABOCA')+'/saboca-cabling.py')
+execfile(os.getenv('BOA_HOME_SABOCA')+'/skydip.py')
+execfile(os.getenv('BOA_HOME_SABOCA')+'/boaSaboca.py')
+
+##########################################################################
+ambient = data.ScanParam.T_amb
+# No hot-sky calibration with SABOCA - use fixed values
+hot = 1000.0
+sky = 0.0
+Tsky = 220.0
+#--------------------------------------------
+el = data.getChanData('el')
+nObs = data.ScanParam.NObs
+
+time = data.getChanData('MJD') 
+if nObs > 1:
+    skydipflux = zeros((nObs),'f')
+    elevation  = zeros((nObs),'f')
+else:
+    dumps = len(time)
+    skydipflux = zeros((dumps),'f')
+    elevation  = zeros((dumps),'f')
+
+#-------------------------------------------------------
+data.zeroStart()
+ok = data.BolometerArray.checkChanList([])
+
+# Apply flat field
+mjdref = data.ScanParam.MJD[0]
+rcp=getSabocaRCP(mjdref)
+data.MessHand.info("RCP file : %s " % rcp)
+data.BolometerArray.updateRCP (rcp)
+#
+bad=getSabocaCross(mjdref)
+data.MessHand.info("Bad channels : %s " % bad)
+data.flagChannels(bad)
+#
+inverted=getSabocaInvert(mjdref)
+data.MessHand.info("Inverted channels : %s " % inverted)
+invertSomeChannels(inverted)
+#
+data.flatfield()
+
+#correctBlind(data)
+
+if nObs > 1:
+    for i in range(nObs):
+        ind1 = data.ScanParam.SubscanIndex[0,i]
+        ind2 = data.ScanParam.SubscanIndex[1,i]
+        elevation[i]=fStat.f_median(el[ind1:ind2])
+        flux = data._DataAna__computeMeanSignal()
+        skydipflux[i]=fStat.f_median(flux[ind1:ind2])
+	
+else:
+   elevation = el
+   skydipflux =data._DataAna__computeMeanSignal()
+   correctBlind(data)
+   skydipfluxblind =data._DataAna__computeMeanSignal()
+   
+#ALIGN SKY LEVEL FROM FIRST SUBSCAN OF SKYDIP TO SKY FROM HOT/SKY (same elev)
+skydipflux      = skydipflux      - skydipflux[0]      + sky
+skydipfluxblind      = skydipfluxblind      - skydipflux[0]      + sky
+
+#CONVERT TO KELVIN
+skydiptemp      = ambient-(hot-skydipflux)    *VtoK
+skydiptempblind     = ambient-(hot-skydipfluxblind)    *VtoK
+#-------------------------------------------------------
+# Fit on data
+xx = array(elevation)
+yy = array(skydiptemp)
+yyy = array(skydiptempblind)
+
+# First guess for TAtm: use T_amb from Monitor points
+data.TAtm = data.ScanParam.T_amb
+data.Tau = 1.0
+data.Feff = 0.95
+data.Coupling=1.0
+data.Tcabin=293.0
+
+guess = [data.Coupling,data.Tcabin,data.TAtm,data.Tau,data.Feff]
+guess = [data.TAtm,data.Tau,data.Feff]
+m1 = fitSkydipn(xx,yy,sqrt(yy),guess)
+plot(xx,yy,labelX = 'Elevation [deg]',labelY = 'Sky emission [K]',
+	caption=data.ScanParam.caption())
+y2 = modelSkydipn(m1.params,xx)
+
+guess=[m1.params[0],m1.params[1],m1.params[2]]
+m2 = fitSkydipn(xx,yyy,sqrt(yyy),guess)
+y3 = modelSkydipn(m2.params,xx)
+
+plot(xx,yyy,overplot=1,ci=1)
+
+plot(xx,y2,overplot=1,ci=2,style='l',width=8)
+plot(xx,y3,overplot=1,ci=4,style='l',width=8)
+
+data.MessHand.info("   ----   skydip  results   ----")
+data.MessHand.info("Fit based on curvature only ")
+data.MessHand.info("No blind correction (red): ")
+data.MessHand.info("tau_z    = %5.3f "%(m1.params[1]))
+data.MessHand.info("a        = %5.1f "%(m1.params[0]))
+data.MessHand.info("b        = %5.2f "%(m1.params[2]))
+data.MessHand.info("With blind correction (blue): ")
+data.MessHand.info("tau_z    = %5.3f "%(m2.params[1]))
+data.MessHand.info("   ------------------------------")
+#-------------------------------------------------------
+
+zenithtau = -1.
+zenithtau = m1.params[1]
+scanmjd = data.ScanParam.MJD[0]
+scandate = data.ScanParam.DateObs
+
+writetau = 0
+
+if zenithtau > 0.01:
+	writetau = 1
+

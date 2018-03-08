@@ -1,0 +1,10 @@
+cd $BOA_HOME_SABOCA
+rm -f $HOME/saboca-planet-flux.dat
+ARGS=5
+source=$1
+time=$2
+date=$3
+beam=$4
+freq=$5
+echo 'exit' | astro @saboca-planet-flux.astro $source $time $date $beam $freq
+

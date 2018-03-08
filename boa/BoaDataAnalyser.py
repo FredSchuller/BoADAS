@@ -719,10 +719,15 @@ class DataAna(BoaDataEntity.DataEntity):
 
     # ... report that on self.DataFlag
     chanIndexes = self.BolometerArray.getChanIndex(chanList)
-    for index in chanIndexes:
-        if index != -1:
-            if self.BolometerArray.FlagHandler.isSetOnIndex(index):
-                self.FlagHandler.setAll(self.rflags['CHANNEL FLAGGED'], dim=1, index=index)
+    #for index in chanIndexes:
+    #    if index != -1:
+    #        if self.BolometerArray.FlagHandler.isSetOnIndex(index):
+    #            self.FlagHandler.setAll(self.rflags['CHANNEL FLAGGED'], dim=1, index=index)
+    # Buggy ! corrected 2017-07-04
+    for i in range(len(chanIndexes)):
+        if chanIndexes[i] != -1:
+            if self.BolometerArray.FlagHandler.isSetOnIndex(chanList[i]-1):
+                self.FlagHandler.setAll(self.rflags['CHANNEL FLAGGED'], dim=1, index=chanIndexes[i])
 
     self.MessHand.debug("...flagChannels ends")
 
@@ -750,11 +755,17 @@ class DataAna(BoaDataEntity.DataEntity):
 
     # ... report that on self.DataFlag
     chanIndexes = self.BolometerArray.getChanIndex(chanList)
-    for index in chanIndexes:
-        if index != -1:
-            if self.BolometerArray.FlagHandler.isUnsetOnIndex(index):
+    #for index in chanIndexes:
+    #    if index != -1:
+    #        if self.BolometerArray.FlagHandler.isUnsetOnIndex(index):
+    #            self.FlagHandler.unsetAll(self.rflags['CHANNEL FLAGGED'],
+    #                                      dim=1, index=index)
+    # Buggy ! corrected 2017-07-04
+    for i in range(len(chanIndexes)):
+        if chanIndexes[i] != -1:
+            if self.BolometerArray.FlagHandler.isUnsetOnIndex(chanList[i]-1):
                 self.FlagHandler.unsetAll(self.rflags['CHANNEL FLAGGED'],
-                                          dim=1, index=index)
+                                          dim=1, index=chanIndexes[i])
 
     self.MessHand.debug("...unflagChannels ends")
 
@@ -782,7 +793,7 @@ class DataAna(BoaDataEntity.DataEntity):
       try:
           f = file(os.path.join(BoaConfig.rcpPath,rcpFile))
       except IOError:
-          self.__MessHand.error("could not open file %s"%(rcpFile))
+          self.MessHand.error("could not open file %s"%(rcpFile))
           return
       
       param = f.readlines()
@@ -3545,7 +3556,9 @@ class DataAna(BoaDataEntity.DataEntity):
 
     for chan in chanList:
         num = self.BolometerArray.getChanIndex(chan)[0]
-        self.Data[:,num] = self.Data[:,num] / array((self.FFCF_Gain[num]),Float32)
+        # self.Data[:,num] = self.Data[:,num] / array((self.FFCF_Gain[num]),Float32)
+        # corrected 2017-07-04 (FSc)
+        self.Data[:,num] = self.Data[:,num] / array((self.FFCF_Gain[chan-1]),Float32)
         
     self.__resetStatistics()
     self.MessHand.debug('... applyFlatField end')

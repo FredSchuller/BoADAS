@@ -1,0 +1,10 @@
+cd $BOA_HOME_LABOCA
+rm -f $HOME/planet-flux.dat
+ARGS=5
+source=$1
+time=$2
+date=$3
+beam=$4
+freq=$5
+echo 'exit' | astro @planet-flux.astro $source $time $date $beam $freq
+

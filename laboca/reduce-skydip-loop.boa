@@ -1,0 +1,15 @@
+import os
+
+output=file('Laboca-taus.dat','w')
+
+scans=[22310,22329,23314,23321,23356]
+
+
+ok = 0
+for num in range(len(scans)):
+        scannr = scans[num]
+        execfile(os.path.join(os.getenv('BOA_HOME_LABOCA'), 'reduce-skydip.boa'))
+        if writetau == 1:
+            output.write('%i  %s %18.12f %5.3f\n' %(scannr,scandate,scanmjd,zenithtau))
+
+output.close()

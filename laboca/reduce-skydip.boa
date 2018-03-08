@@ -1,0 +1,176 @@
+###
+#
+# reduce-skydip-both.boa
+#
+# Boa script to process a bolotip observation
+# NOTE: this assumes the observations contain two scans:
+#       scannr   is a sky-hot calibration
+# 	scannr+1 is the proper skydip
+# scannr must be a global variable defined in the Boa session
+#
+# Created:    2007 May
+# Last modif: 2009 July 1st
+# Authors   : A. Weiss, F. Schuller
+#
+###
+
+from boa import BoaSkydip
+from boa.Utilities import modelSkydip,fitSkydip
+from boa.fortran import fStat
+
+import os
+if not os.getenv('BOA_HOME_LABOCA'):
+   raise 'Environment variable BOA_HOME_LABOCA undefined'
+labocadir = os.getenv('BOA_HOME_LABOCA') + '/'
+try:
+	execfile(labocadir + 'cabling.py')
+	execfile(labocadir + 'Laboca-RCPs.py')
+except IOError:
+	print " *** Some important file not found, exiting !!!"
+	raise
+
+##########################################################################
+# If apply_he3corr is defined and non-zero we will correct for He3 T readings
+# default is to correct for blind signals
+
+try:
+	tmp = apply_he3corr
+except NameError:
+	apply_he3corr = 0
+
+##########################################################################
+# Everything will be done in a new data object, of class Skydip
+skydata = BoaSkydip.Skydip()
+ambient = skydata.TCabin
+
+##########################################################################
+# Read the data
+#
+# Read "sky-hot" calibration scan
+skydata.read(str(scannr))
+mjdref = skydata.ScanParam.MJD[0]
+
+#CONVERSION TO V
+CntstoV(skydata)
+skydata.flagChannels(resistor)
+skydata.flagChannels(sealed_may07)
+skydata.flagFractionRms(ratio=5)
+cross=getLabocaCross(mjdref)
+skydata.flagChannels(cross)
+skydata.zeroStart()
+
+rcp=getLabocaRCP(mjdref)
+skydata.BolometerArray.updateRCP(rcp)
+skydata.flatfield()
+
+#DEFINE LIST OF FLAGGED BOLOS:
+ok = skydata.BolometerArray.checkChanList([])
+flagged = range(1,321)
+for c in ok:
+	flagged.remove(c)
+
+skydata._DataAna__statistics()
+mm = array(skydata.getChanListData('mean_s'),'f')
+  
+sky=fStat.f_median(mm[:,0])
+hot=fStat.f_median(mm[:,1])
+
+# first result: Tsky
+Tsky = ambient-(hot-sky)*skydata.VtoK
+
+#--------------------------------------------
+#READ SKYDIP
+if apply_he3corr:
+	skydata.read(str(scannr+1),readHe=1,readT=1)
+else:
+	skydata.read(str(scannr+1),readT=1)
+
+nObs = skydata.ScanParam.NObs
+
+if nObs > 1:
+    skydipflux = zeros((nObs),'f')
+    elevation  = zeros((nObs),'f')
+else:
+    mjd = skydata.ScanParam.get('MJD') 
+    dumps = len(mjd)
+    skydipflux = zeros((dumps),'f')
+    elevation  = zeros((dumps),'f')
+
+#-------------------------------------------------------
+#CONVERSION TO V
+CntstoV(skydata)
+
+#FLAG SAME CHANNELS AS ABOVE:
+
+skydata.flagChannels(flagged)
+skydata.zeroStart()
+
+el = skydata.getChanData('el')
+ok = skydata.BolometerArray.checkChanList([])
+
+if apply_he3corr:
+	# correction for He3 temp. variations
+	correctHe3(skydata)
+else:
+	correctBlind(skydata)
+
+# Apply flat field
+skydata.BolometerArray.updateRCP(rcp)
+skydata.flatfield()
+
+if nObs > 1:
+    for i in range(nObs):
+        ind1 = skydata.ScanParam.SubscanIndex[0,i]
+        ind2 = skydata.ScanParam.SubscanIndex[1,i]
+        elevation[i]=fStat.f_median(el[ind1:ind2])
+        flux = skydata._DataAna__computeMeanSignal()
+        skydipflux[i]=fStat.f_median(flux[ind1:ind2])
+else:
+   elevation = el
+   skydipflux =skydata._DataAna__computeMeanSignal()
+
+#ALIGN SKY LEVEL FROM FIRST SUBSCAN OF SKYDIP TO SKY FROM HOT/SKY (same elev)
+skydipflux      = skydipflux      - skydipflux[0]      + sky
+
+#CONVERT TO KELVIN
+skydiptemp      = ambient-(hot-skydipflux)     *skydata.VtoK
+
+#-------------------------------------------------------
+# Fit on data corrected for He3 temp
+xx = array(elevation)
+yy = array(skydiptemp)
+
+# First guess for TAtm: use T_amb from Monitor points
+
+skydata.TAtm = skydata.ScanParam.T_amb
+guess = [skydata.Coupling,skydata.TCabin,skydata.TAtm,skydata.Tau,skydata.Feff]
+
+m1 = fitSkydip(xx,yy,sqrt(yy),guess)
+plot(xx,yy,labelX = 'Elevation [deg]',labelY = 'Sky temperature [K]',
+	caption=skydata.ScanParam.caption())
+y2 = modelSkydip(m1.params,xx)
+
+plot(xx,y2,overplot=1,ci=2,style='l')
+
+skydata.MessHand.info("   ---- calibration hot-sky ----")
+skydata.MessHand.info("Tsky = %6.2f K"%(Tsky))
+skydata.MessHand.info("   ----   skydip  results   ----")
+if apply_he3corr:
+	skydata.MessHand.info("Signal corrected for He3 temperature")
+else:
+	skydata.MessHand.info("Signal corrected for blind bolos")
+
+skydata.MessHand.info("Coupling = %5.2f "%(100.*m1.params[0]) + "%")
+skydata.MessHand.info("tau_z    = %5.3f "%(m1.params[3]))
+skydata.MessHand.info("Tatm     = %6.2f K"%(m1.params[2]))
+
+#-------------------------------------------------------
+
+zenithtau = -1.
+zenithtau = m1.params[3]
+scanmjd = skydata.ScanParam.MJD[0]
+scandate = skydata.ScanParam.DateObs
+
+writetau = 0
+if zenithtau > 0.01:
+	writetau = 1

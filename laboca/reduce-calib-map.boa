@@ -1,0 +1,76 @@
+# This file is obsolete - should use reduce-calibrator.boa instead
+
+print "************************************************"
+print "**        NOTE : This file is obsolete        **"
+print "* You should use reduce-calibrator.boa instead *"
+print "************************************************"
+
+import os
+if not os.getenv('BOA_HOME_LABOCA'):
+   raise 'Environment variable BOA_HOME_LABOCA undefined'
+execfile(os.path.join(os.getenv('BOA_HOME_LABOCA'), 'cabling.py'))
+execfile(os.path.join(os.getenv('BOA_HOME_LABOCA'), 'secondary-calibrator-flux.boa'))
+
+CntstoV(data)
+data.Data *= array(VtoJy,'f')
+
+source_name = data.ScanParam.Object
+
+updateRCP('master-laboca-may07.rcp')
+data.zeroStart()
+flat()
+
+flagC(resistor)
+flagC(cross)
+flagC(sealed_may07)
+
+
+data.flagSpeed (below=30.)
+data.flagSpeed(above=500.)
+data.flagAccel(above=800.)
+
+data.flagFractionRms(ratio=5)
+
+
+medianNoiseRemoval(chanRef=-1,factor=0.8,nbloop=5)
+despike(below=-3,above=15)
+
+
+data.flagPosition(radius=50,flag=8)
+data.flagFractionRms(ratio=5)
+
+despike(below=-5,above=5)
+correlbox(data,factor=0.8,nbloop=2)
+correlgroup(data,factor=0.8,nbloop=5)
+base(order=1)
+data.flagFractionRms(ratio=5)
+weight()
+unflag(flag=8)
+
+
+mapping(sizeX=[-150,150],sizeY=[-150,150],oversamp=4)
+solvePointingOnMap(plot=1,radius=30)
+
+obsflux = data.PointingResult['gauss_peak']['value']
+
+expect_flux = 0.
+writecal = 0.
+
+for k in range(len(calibrators)):
+	if source_name == calibrators[k]:
+		expect_flux = cfluxes[k]
+
+if expect_flux > 0:
+	calcorr = obsflux/expect_flux
+        writecal = 1
+else:
+	calcorr = 1
+        writecal = 0
+
+if writecal == 1:
+	percent = 100.0*obsflux/expect_flux
+	print "------------------------------------------------------------------------------------------"
+	print "FLUX %s:  %f [expected: %f, %f percent]"%(source_name,obsflux,expect_flux,percent)
+	print "------------------------------------------------------------------------------------------"
+else:
+	print "Calibrator not found in secondary-calibrator-flux.boa"

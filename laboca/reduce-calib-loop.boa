@@ -1,0 +1,35 @@
+from boa.fortran import fStat
+from boa.Utilities import getTau
+import os
+
+scans = [20998,20999,21000,21004]
+
+output=file('Laboca-calib.dat','w')
+
+
+ok = 0
+for num in range(len(scans)):
+    try:
+        ok = read(str(scans[num]))
+    except:
+        ok = -1
+
+    if ok == 0:
+        scannr = scans[num]
+        mjdref = fStat.f_mean(data.ScanParam.MJD)
+        tau = getTau(mjdref,'linear','Laboca-taus.dat')
+
+        scandate = data.ScanParam.DateObs
+        scanmjd = data.ScanParam.MJD[0]
+        scanel  = fStat.f_mean(data.ScanParam.El)
+        taucorr = exp(tau/sin(scanel * pi / 180.))
+        
+        data.correctOpacity(tau)
+        execfile(os.path.join(os.getenv('BOA_HOME_LABOCA'), 'reduce-calib-map.boa'))
+        
+        if writecal == 1:
+            output.write('%i  %s %18.12f %5.3f %5.3f\n' %(scannr,scandate,scanmjd,calcorr,taucorr))
+
+
+
+output.close()

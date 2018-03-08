@@ -1,0 +1,66 @@
+##########################################################
+#
+# reduce-map-weaksource.boa
+# script for pipeline reduction of LABOCA data
+# optimised for weak source
+#
+# Note that opacity is not corrected in this script
+#
+
+# Read LABOCA specific definitions
+import os
+if not os.getenv('BOA_HOME_LABOCA'):
+   raise 'Environment variable BOA_HOME_LABOCA undefined'
+labocadir = os.getenv('BOA_HOME_LABOCA') + '/'
+try:
+	execfile(labocadir + 'cabling.py')
+	execfile(labocadir + 'Laboca-RCPs.py')
+except IOError:
+	print " *** Some important file not found, exiting !!!"
+	raise
+
+CntstoJy(data)
+mjdref = data.ScanParam.MJD[0]
+rcp=getLabocaRCP(mjdref)
+updateRCP(rcp)
+flagRCP(rcp)
+
+data.zeroStart()
+flat()
+
+# Flag bad channels
+flagC(resistor)
+cross=getLabocaCross(mjdref)
+flagC(cross)
+flagC(sealed_may07)
+
+# Flag stationary points and high acceleration
+data.flagSpeed (below=30.)
+data.flagSpeed(above=500.)
+data.flagAccel(above=800.)
+
+# Flag dead and very noisy channels
+data.flagFractionRms(ratio=5)
+
+# First correlated noise removal on all channels and despiking
+medianNoiseRemoval(chanRef=-1,factor=0.8,nbloop=5)
+despike(below=-3,above=3)
+
+# correlated noise removal by groups and boxes of channels
+# (Laboca wireing)
+correlbox(data,factor=0.8,nbloop=2)
+correlgroup(data,factor=0.8,nbloop=2)
+
+# Flag noisy channels
+data.flagFractionRms(ratio=5)
+
+# Despiking
+despike(below=-3,above=3)
+
+# Filter on low frequencies 
+data.flattenFreq(below=0.3,hiref=0.35)
+base(order=1,subscan=0)
+despike(below=-3,above=3)
+
+# Compute weights based on rms off each channel
+weight()

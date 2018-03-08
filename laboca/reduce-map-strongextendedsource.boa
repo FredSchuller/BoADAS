@@ -1,0 +1,43 @@
+import os
+if not os.getenv('BOA_HOME_LABOCA'):
+   raise 'Environment variable BOA_HOME_LABOCA undefined'
+labocadir = os.getenv('BOA_HOME_LABOCA') + '/'
+try:
+	execfile(labocadir + 'cabling.py')
+	execfile(labocadir + 'Laboca-RCPs.py')
+except IOError:
+	print " *** Some important file not found, exiting !!!"
+	raise
+
+CntstoJy(data)
+mjdref = data.ScanParam.MJD[0]
+rcp=getLabocaRCP(mjdref)
+updateRCP(rcp)
+flagRCP(rcp)
+
+data.zeroStart()
+flat()
+flagC(resistor)
+cross=getLabocaCross(mjdref)
+flagC(cross)
+flagC(sealed_may07)
+
+data.flagSpeed (below=30.)
+data.flagSpeed(above=500.)
+data.flagAccel(above=800.)
+
+data.flagFractionRms(ratio=5)
+
+medianNoiseRemoval(chanRef=-1,factor=0.8,nbloop=5)
+despike(below=-5,above=15)
+
+despike(below=-3,above=3,flag=8)
+
+correlbox(data,factor=0.8,nbloop=2)
+correlgroup(data,factor=0.8,nbloop=2)
+data.flagFractionRms(ratio=5)
+
+data.flattenFreq(below=0.05,hiref=0.1)
+base(order=1,subscan=0)
+weight()
+unflag(flag=8)

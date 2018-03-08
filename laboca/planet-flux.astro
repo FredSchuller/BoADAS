@@ -1,0 +1,9 @@
+obs -67:45:11.6 -23:01:11.7 5.1 30 
+ 
+sic output ~/planet-flux.dat 
+time &2 &3 
+define real beam
+let beam &4
+let frequency &5
+planet &1
+say 'planet_flux'

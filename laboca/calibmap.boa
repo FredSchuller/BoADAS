@@ -1,0 +1,95 @@
+# This file is obsolete - should use reduce-calibrator.boa instead
+
+print "************************************************"
+print "**        NOTE : This file is obsolete        **"
+print "* You should use reduce-calibrator.boa instead *"
+print "************************************************"
+
+from fortran import fStat
+import string
+execfile(os.getenv('BOA_HOME_LABOCA') + '/cabling.py')
+execfile(os.getenv('BOA_HOME_LABOCA') + '/secondary-calibrator-flux.boa')
+execfile(os.path.join(os.getenv('BOA_HOME_LABOCA'), 'planet-flux.py'))
+
+CntstoV(data)
+data.Data *= array(VtoJy,'f')
+
+source_name = data.ScanParam.Object
+
+updateRCP('LABOCA.rcp')
+
+data.zeroStart()
+flat()
+
+flagC(resistor)
+flagC(cross)
+flagC(blind)
+
+medianBase(subscan=0)
+medianNoiseRemoval(chanRef=-1,factor=0.9,nbloop=3)
+data.flagPosition(radius=50,flag=8)
+data.flagFractionRms(ratio=5)
+despike()
+base(order=1)
+# data.flattenFreq(below=0.1,hiref=0.3)
+stat()
+if source_name != 'Mars':
+   weight()
+unflag(flag=8)
+
+mapping(sizeX=[-150,150],sizeY=[-150,150],oversamp=4)
+
+print "Solving for pointing on map..."
+solvePointingOnMap(plot=1,radius=30)
+obsfluxmap = data.PointingResult['gauss_peak']['value']
+
+try:
+        print "Solving for pointing on data..."
+        data.PointingResult = -1
+ 	data.solvePointing(radius=30)
+	obsfluxdata = data.PointingResult['gauss_peak']['value']
+except:
+        print "Fit on data did not converge"
+	obsfluxdata = 0.0
+
+
+expect_flux = 0.
+
+if source_name != 'Uranus' and source_name != 'Neptune' and source_name != 'Mars':
+	for k in range(len(calibrators)):
+		if source_name == calibrators[k]:
+			expect_flux = cfluxes[k]
+else:
+	astrotime,astrodate=getAstroDate(data)
+        if string.find(data.BolometerArray.FeBe,'LABOCA') >= 0:
+		beam = 19.2
+                freq = 345
+		
+        if string.find(data.BolometerArray.FeBe,'BOLOSZ') >= 0:
+		beam = 60.0
+                freq = 151
+
+        expect_flux = PlanetFlux(source_name,astrotime,astrodate,str(beam),str(freq))
+
+if expect_flux > 0:
+
+	calcorrdata = obsfluxdata/expect_flux
+        calcorrmap = obsfluxmap/expect_flux
+	qcorrdata = abs(calcorrdata-1)
+        qcorrmap  = abs(calcorrmap-1)
+
+	if qcorrdata < qcorrmap:
+			
+			obsflux = obsfluxdata
+        else:
+                        
+			obsflux = obsfluxmap
+
+
+
+	percent = 100.0*obsflux/expect_flux
+        print "------------------------------------------------------------------------------------------"
+        print "FLUX %s:  %f [expected: %f, %f percent]"%(source_name,obsflux,expect_flux,percent)
+        print "------------------------------------------------------------------------------------------"
+else:
+        print "Calibrator not found in secondary-calibrator-flux.boa"

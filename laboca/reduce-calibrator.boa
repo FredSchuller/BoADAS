@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+# reduce-calibrator.boa
+# APEX - Atacama Pathfinder EXperiment Project
+#
+# who       when        what
+# --------  ----------  ----------------------------------------------
+# fschuller 2008/11/21  created: copy of calibmap.boa, uses
+#			secondary-fluxes.py instead of 
+#                       secondary-calibrator-flux.boa
+#			(i.e. with fluxes updated, 2008 Nov.)
+
+from boa.fortran import fStat
+import string
+labocadir = os.getenv('BOA_HOME_LABOCA') + '/'
+try:
+	execfile(labocadir + 'cabling.py')
+	execfile(labocadir + 'boaLaboca.py')
+	execfile(labocadir + 'secondary-fluxes.py')
+	execfile(labocadir + 'planet-flux.py')
+	execfile(labocadir + 'Laboca-RCPs.py')
+except IOError:
+	print " *** Some important file not found, exiting !!!"
+	raise
+
+CntstoJy(data)
+
+mjdref = data.ScanParam.MJD[0]
+rcp=getLabocaRCP(mjdref)
+data.MessHand.longinfo("RCP file: %s"%(rcp))
+data.BolometerArray.updateRCP(rcp)
+data.flagRCP(rcp)
+
+cross=getLabocaCross(mjdref)
+data.flagChannels(cross)
+data.flagChannels(sealed_may07)
+data.flagChannels(resistor)
+
+correctBlind(data)
+data.zeroStart()
+data.flatfield()
+
+data.flagSpeed (below=30.)
+data.flagSpeed(above=500.)
+data.flagAccel(above=800.)
+
+source_name = data.ScanParam.Object
+
+if source_name not in ['Mars','Saturn','Jupiter','Venus']:
+	data.flagFractionRms(ratio=5)
+	data.medianNoiseRemoval(chanRef=-1,factor=0.9,nbloop=3)
+
+data.flagPosition(radius=30,flag=8)
+if source_name in ['Saturn','Jupiter']:
+	data.flagPosition(radius=50,flag=8)
+data.medianNoiseRemoval(chanRef=-1,factor=0.9,nbloop=3)
+data.flagFractionRms(ratio=5)
+data.despike(below=-5,above=5)
+if source_name == 'HLTAU' or source_name == 'VYCma' or source_name == 'V883-ORI':
+                correlbox(data,factor=0.8,nbloop=2)
+                correlgroup(data,factor=0.9,nbloop=2)
+
+data.polynomialBaseline(order=1)
+data.flagFractionRms(ratio=5)
+
+if source_name != 'Mars':
+   data.computeWeight()
+data.unflag(flag=8)
+
+data.doMap(sizeX=[-150,150],sizeY=[-150,150],oversamp=4,noPlot=1)
+
+print "Solving for pointing on map..."
+data.solvePointingOnMap(plot=1,radius=30)
+obsfluxmap = data.PointingResult['gauss_peak']['value']
+
+# try:
+#         print "Solving for pointing on data..."
+#         data.PointingResult = -1
+#  	data.solvePointing(radius=30)
+# 	obsfluxdata = data.PointingResult['gauss_peak']['value']
+# except:
+#         print "Fit on data did not converge"
+# 	obsfluxdata = 0.0
+
+
+expect_flux = 0.
+
+if source_name in ['Uranus','Neptune','Mars','Saturn','Jupiter','Venus']:
+	astrotime,astrodate=getAstroDate(data)
+        if string.find(data.BolometerArray.FeBe,'LABOCA') >= 0:
+		beam = 19.2
+                freq = 345
+		
+        if string.find(data.BolometerArray.FeBe,'BOLOSZ') >= 0:
+		beam = 60.0
+                freq = 151
+	print source_name,astrotime,astrodate,str(beam),str(freq)
+        expect_flux = PlanetFlux(source_name,astrotime,astrodate,str(beam),str(freq))
+else:
+	if calibFluxes.has_key(string.upper(source_name)):
+		expect_flux = calibFluxes[string.upper(source_name)]
+
+if expect_flux > 0:
+	#calcorrdata = obsfluxdata/expect_flux
+        calcorrmap = obsfluxmap/expect_flux
+	#qcorrdata = abs(calcorrdata-1)
+        qcorrmap  = abs(calcorrmap-1)
+
+# 	if qcorrdata < qcorrmap:			
+# 		obsflux = obsfluxdata
+#         else:                        
+# 		obsflux = obsfluxmap
+
+	obsflux = obsfluxmap
+	percent = 100.0*obsflux/expect_flux
+        print "-------------------------------------------------------------"
+        print "FLUX %s:  %7.2f [expected: %7.2f, %6.2f percent]"%(source_name,
+								  obsflux,
+								  expect_flux,
+								  percent)
+        print "-------------------------------------------------------------"
+else:
+        print "Calibrator not found in secondary-fluxes.py"

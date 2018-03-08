@@ -1,0 +1,41 @@
+rcpdir = os.getenv('BOA_HOME_RCP')
+f = file(rcpdir+'/sky-noise-gains-dec07-bonn.dat')
+rl = f.readlines()
+f.close()
+
+toflag = []
+for l in rl:
+  tmp = l.split()
+  num = int(tmp[0])
+  gain = float(tmp[1])
+  sigm = float(tmp[2])
+  if sigm > 0. and gain > 0.7:
+    data.FF_Median[num-1] = gain
+  else:
+    toflag.append(num)
+
+data.zeroStart(subscan=0)
+data.flagChannels(toflag)
+correctBlind(data)
+data.flagFractionRms(ratio=5)
+tst = data.BolometerArray.checkChanList([data.BolometerArray.RefChannel])
+if not tst:
+  data.unflagChannels(data.BolometerArray.RefChannel)
+
+Plot.panels(2,2)
+Plot.nextpage()  # start a new page
+# First plot = signal before skynoise removal
+four = data.BolometerArray.fourpixels()
+data.signal(four,noerase=1,caption=data.ScanParam.caption()+' - Raw signal')
+Plot.nextpage()
+data.solveFocus(noerase=1,caption=' ')
+Plot.xyout(0.,0.,str("%5.2f +- %4.2f"%(data.FocusOffset,data.FocusError)),size=2)
+
+# again after skynoise removal
+data.medianNoiseRemoval(computeFF=0,chanRef=-1,nbloop=1)
+Plot.nextpage()
+data.signal(four,caption='Skynoise subtracted',noerase=1)
+Plot.nextpage()
+data.solveFocus(noerase=1,caption=' ')
+Plot.xyout(0.,0.,str("%5.2f +- %4.2f"%(data.FocusOffset,data.FocusError)),size=2)
+Plot.panels(1,1)

@@ -41,7 +41,7 @@ import os
 # from commands import getoutput
 # import string
 # import time
-import numpy as np
+##import numpy as np
 # from scipy import optimize
 
 # Boa functions required by redmfoc

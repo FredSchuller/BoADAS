@@ -4,5 +4,4 @@
 57538.0    57569.0   ARTEMIS350_2016-06.rcp        # 2016-05-30 to 2016-06-30
 57662.0    57692.0   ARTEMIS350_2016-10_shifted.rcp   # 2016-10-01 to 2016-10-31 (updated 2018-03-01)
 57692.0	   57800.0   ARTEMIS350_shifted.rcp        # 2016-11-01 to 2017 - before, was ARTEMIS350_2016-11.rcp
-57800.0    60000.0   ARTEMIS350_2017-final.rcp     # created 2017-12-06: average of 4 beam maps, reduced with
-                                                   # refraction correction added to el_offsets
+57800.0    60000.0   ARTEMIS350_2017-final.rcp     # created 2017-12-06: average of 4 beam maps, reduced with refraction correction added to el_offsets

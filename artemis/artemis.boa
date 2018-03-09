@@ -88,7 +88,7 @@ print "\tReduction of a skydip scan."
 ####
 print " "
 print " \033[1;35m For more details, please do: print <function>.__doc__  \033[0m"
-print " \033[1;34m Version last modified: 2018-01-10 \033[0m"
+print " \033[1;34m Version last modified: 2018-03-09 \033[0m"
 # print " \033[1;34m Version last modified: 2017-07-17 \033[0m"  # last significant change
 print " "
 
@@ -796,10 +796,10 @@ def redsky(scannum,band=450,showPWV=1):
     # -------------------------------------------------------
     # Fit on data
     xx = array(elevation)
-    #yy = array(skydiptemp)
-    #ee = array(temperr)
-    yy = array(skydipflux)
-    ee = array(fluxerr)
+    yy = array(skydiptemp)
+    ee = array(temperr)
+    #yy = array(skydipflux)
+    #ee = array(fluxerr)
     
     # First guess for TAtm: use T_amb from Monitor points
     data.TAtm = data.ScanParam.T_amb
@@ -848,31 +848,36 @@ def redsky(scannum,band=450,showPWV=1):
         Jy_to_K = 1./53.
         F_eff   = 0.85
     Tatm  = data.ScanParam.T_amb
-    tau_z = log(1./Jy_to_K * F_eff * Tatm / (yy[-1] - yy[0]))
-    S_0   = yy[-1] - 1./Jy_to_K * Tatm
-    guess = [Tatm,tau_z,F_eff,Jy_to_K,S_0]
+    # tau_z = log(1./Jy_to_K * F_eff * Tatm / (yy[-1] - yy[0]))
+    # S_0   = yy[-1] - 1./Jy_to_K * Tatm
+    # guess = [Tatm,tau_z,F_eff,Jy_to_K,S_0]
     # 2017-07-18: addind a coupling term
-    coupl = 0.8
-    guess.append(coupl)
+    # coupl = 0.8
+    # guess.append(coupl)
+
+    # 2018-03-09: back to 3-parameter function
+    guess = [data.TAtm,F_eff,data.Tau]
+
     print " --- Fitting skydip function - Initial guess:"
     print "  F_eff = ",F_eff
     print "  Tatm  = ",Tatm
-    print "  KtoJy = ",1./Jy_to_K
-    print "  S_0   = ",S_0
-    print "  tau_z = ",tau_z
-    print "  coupl = ",coupl
+    print "  tau_z = ",data.Tau
+#    print "  KtoJy = ",1./Jy_to_K
+#    print "  S_0   = ",S_0
+#    print "  tau_z = ",tau_z
+#    print "  coupl = ",coupl
     
     ## !! Here is the call to the fitting function
     #####
-    # m1 = fitSkydipn(xx,yy,ee,guess)
+    m1 = fitSkydipn(xx,yy,ee,guess)
     #m1 = fitSkydipPlus(xx,yy,ee,guess)
-    m1 = fitSkydipFull(xx,yy,ee,guess)
+    #m1 = fitSkydipFull(xx,yy,ee,guess)
 
 
     # # Overplot the fitted model
-    #y2 = modelSkydipn(m1.params,xx)
+    y2 = modelSkydipn(m1.params,xx)
     #y2 = modelSkydipPlus(m1.params,xx)
-    y2 = modelSkydipFull(m1.params,xx)
+    #y2 = modelSkydipFull(m1.params,xx)
     #plot(xx,y2,overplot=1,ci=2,style='l',width=5)
     plot(air,y2,overplot=1,ci=2,style='l',width=5)
     # y2 = fnSkydip(xx,popt[0],popt[1],popt[2] )    
@@ -881,11 +886,11 @@ def redsky(scannum,band=450,showPWV=1):
     data.MessHand.info("   ----   skydip  results   ----")
     # data.MessHand.info("Fit results with mpfit ")
     data.MessHand.info("tau_z = %5.3f +- %5.3f"%(m1.params[1],m1.perror[1]))
-    data.MessHand.info("F_eff  = %5.3f +- %5.3f"%(m1.params[2],m1.perror[2]))
-    data.MessHand.info("T_atm  = %5.1f +- %5.1f"%(m1.params[0],m1.perror[0]))
-    data.MessHand.info("K_2_Jy = %5.1f +- %5.1f"%(1./m1.params[3],m1.perror[3]))
+    #data.MessHand.info("F_eff  = %5.3f +- %5.3f"%(m1.params[2],m1.perror[2]))
+    #data.MessHand.info("T_atm  = %5.1f +- %5.1f"%(m1.params[0],m1.perror[0]))
+    #data.MessHand.info("K_2_Jy = %5.1f +- %5.1f"%(1./m1.params[3],m1.perror[3]))
     # data.MessHand.info("Offset = %5.1f +- %5.1f"%(m1.params[4],m1.perror[4]))
-    data.MessHand.info("Coupl  = %5.3f +- %5.3f"%(m1.params[5],m1.perror[5]))
+    #data.MessHand.info("Coupl  = %5.3f +- %5.3f"%(m1.params[5],m1.perror[5]))
 
     # Also display the PWV
     if showPWV:
@@ -895,17 +900,17 @@ def redsky(scannum,band=450,showPWV=1):
     # -------------------------------------------------------
     # Return results
     zenithtau = m1.params[1]
-    # if showPWV:
-    #     return zenithtau,m1.perror[1],meanPWV,rmsPWV
-    # else:
-    #     return zenithtau,m1.perror[1]
-
-    # changed 2017-06-21: also return Feff and Tatm
     if showPWV:
-        return zenithtau,m1.perror[1],m1.params[2],m1.params[0],m1.params[3],meanPWV,rmsPWV
+        return zenithtau,m1.perror[1],meanPWV,rmsPWV
     else:
-        return zenithtau,m1.perror[1],m1.params[2],m1.params[0],m1.params[3]
-    # return m1
+        return zenithtau,m1.perror[1]
+
+    # # changed 2017-06-21: also return Feff and Tatm
+    # if showPWV:
+    #     return zenithtau,m1.perror[1],m1.params[2],m1.params[0],m1.params[3],meanPWV,rmsPWV
+    # else:
+    #     return zenithtau,m1.perror[1],m1.params[2],m1.params[0],m1.params[3]
+    # # return m1
 
     ## return popt[2]  # ,perr[2],meanPWV,rmsPWV
 
